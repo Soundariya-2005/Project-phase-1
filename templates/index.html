@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy-Preserving Adaptive Insider Threat Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0b1220;--card:#131c2e;--line:#22304a;--tx:#e2e8f0;--mut:#8fa1bd;--acc:#3b82f6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,Segoe UI,Arial}
+main{max-width:1100px;margin:auto;padding:20px}h1{font-size:22px;margin:0}.sub{color:var(--mut);margin:2px 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+h2{font-size:15px;margin:0 0 10px}.row{display:flex;gap:14px;flex-wrap:wrap}.row>*{flex:1;min-width:230px}
+label{display:block;color:var(--mut);font-size:12px}input[type=range]{width:100%}b.v{color:var(--tx)}
+button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:600}
+button.g{background:#1e2b45}.stat{background:#0f1728;border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+.stat b{display:block;font-size:26px}.stat span{color:var(--mut);font-size:12px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:600;font-size:12px}
+.pill{padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700;color:#0b1220}
+.LOW{background:#22c55e}.MEDIUM{background:#facc15}.HIGH{background:#fb923c}.CRITICAL{background:#ef4444}
+tr.sel{background:#182642}tr[data-id]{cursor:pointer}.chart{position:relative;height:280px}.muted{color:var(--mut)}
+#chat{max-height:170px;overflow:auto;margin-bottom:8px}#chat p{margin:4px 0}.me{color:#93c5fd}
+#q{width:75%;padding:9px;background:#0f1728;border:1px solid var(--line);border-radius:8px;color:var(--tx)}
+</style></head><body><main>
+<h1>Privacy-Preserving Adaptive Insider Threat Dashboard</h1>
+<div class="sub">upload activity logs → privacy layer → adaptive profiling → Isolation Forest → progressive risk → explainable early warning</div>
+
+<div class="card"><h2>1. Upload activity log data</h2>
+<p class="muted" style="margin:0 0 10px">CSV with a user column, a date column and numeric behavioural features. Columns are auto-detected. Names, PCs and other extra fields are dropped and user IDs are pseudonymized before analysis.</p>
+<div class="row">
+<div><label>Adaptive learning rate α: <b class="v" id="v_alpha">0.15</b></label><input type="range" id="alpha" min="0.02" max="0.5" step="0.01" value="0.15"></div>
+<div><label>Expected anomaly rate: <b class="v" id="v_contamination">0.07</b></label><input type="range" id="contamination" min="0.01" max="0.2" step="0.01" value="0.07"></div>
+<div><label>Risk decay: <b class="v" id="v_decay">0.88</b></label><input type="range" id="decay" min="0.5" max="0.99" step="0.01" value="0.88"></div>
+<div><label>Risk gain: <b class="v" id="v_gain">0.13</b></label><input type="range" id="gain" min="0.02" max="0.4" step="0.01" value="0.13"></div>
+</div><p><input type="file" id="file" accept=".csv"> <button onclick="go(false)">Analyze uploaded data</button> <button class="g" onclick="go(true)">Try with sample data</button> <span id="status" class="muted"></span></p></div>
+
+<div class="card"><h2>2. Summary</h2><div class="row" id="stats"><p class="muted">No data analysed yet.</p></div><p class="muted" id="meta"></p></div>
+
+<div class="card"><h2>3. Are there anomalous users?</h2><div class="row">
+<div style="flex:2"><div class="chart"><canvas id="trend"></canvas></div></div>
+<div><div class="chart"><canvas id="donut"></canvas></div></div></div></div>
+
+<div class="card"><h2>4. Users ranked by progressive risk <span class="muted">(click a row to explain)</span></h2>
+<div class="row"><div style="flex:2"><table id="tbl"><thead><tr><th>User (pseudonym)</th><th>Risk</th><th>Level</th><th>Peak</th><th>Anomalous days</th></tr></thead><tbody></tbody></table></div>
+<div><div id="whoTitle" class="muted">Top contributing factors</div><div class="chart" style="height:250px"><canvas id="factors"></canvas></div></div></div></div>
+
+<div class="card"><h2>5. Risk Assistant <span class="muted">(pseudonymous IDs only)</span></h2><div id="chat"></div>
+<input id="q" placeholder="Who is the highest-risk employee?" onkeydown="if(event.key==='Enter')ask()"> <button onclick="ask()">Ask</button></div>
+</main>
+<script>
+const COL={LOW:'#22c55e',MEDIUM:'#facc15',HIGH:'#fb923c',CRITICAL:'#ef4444'};let R=null,C={};
+for(const k of['alpha','contamination','decay','gain'])document.getElementById(k).oninput=e=>document.getElementById('v_'+k).textContent=e.target.value;
+async function go(sample){const fd=new FormData();
+ for(const k of['alpha','contamination','decay','gain'])fd.append(k,document.getElementById(k).value);
+ if(sample)fd.append('sample','1');else{const f=document.getElementById('file').files[0];if(!f)return alert('Choose a CSV file first');fd.append('file',f)}
+ status('Analyzing…');const r=await fetch('/api/analyze',{method:'POST',body:fd});const j=await r.json();
+ if(j.error){status('Error: '+j.error);return}status('');R=j;render()}
+function status(t){document.getElementById('status').textContent=t}
+function render(){const s=R.summary,d=R.distribution;
+ document.getElementById('stats').innerHTML=[[s.users,'Users analyzed'],[s.records,'Activity records'],[s.days,'Day span'],[s.flagged,'Flagged users (HIGH/CRITICAL)']].map(x=>`<div class="stat"><b>${x[0]}</b><span>${x[1]}</span></div>`).join('');
+ document.getElementById('meta').textContent=`User column: ${s.user_col} · date column: ${s.date_col} · features: ${s.features.join(', ')} · PII fields dropped: ${s.dropped_pii.join(', ')||'none'} · explanations: ${s.explain_method} · ${s.seconds}s`;
+ const top=R.users.slice(0,8),pal=['#ef4444','#fb923c','#facc15','#22c55e','#38bdf8','#818cf8','#e879f9','#94a3b8'];
+ mk('trend','line',{labels:R.days,datasets:top.map((u,i)=>({label:u.id,data:u.trend,borderColor:pal[i],backgroundColor:pal[i],pointRadius:0,borderWidth:2,tension:.25}))},{scales:{y:{min:0,max:100,title:{display:true,text:'Progressive risk score'}},x:{ticks:{maxTicksLimit:8}}},plugins:{title:{display:true,text:'Progressive risk over time (top 8 users)'}}});
+ mk('donut','doughnut',{labels:Object.keys(d),datasets:[{data:Object.values(d),backgroundColor:Object.keys(d).map(k=>COL[k])}]},{plugins:{title:{display:true,text:'Risk-level distribution'}}});
+ const tb=document.querySelector('#tbl tbody');tb.innerHTML=R.users.slice(0,15).map(u=>`<tr data-id="${u.id}"><td>${u.id}</td><td>${u.risk}</td><td><span class="pill ${u.level}">${u.level}</span></td><td>${u.peak}</td><td>${u.anomalous_days}</td></tr>`).join('');
+ tb.querySelectorAll('tr').forEach(tr=>tr.onclick=()=>pick(tr.dataset.id));pick(R.users[0].id)}
+function pick(id){const u=R.users.find(x=>x.id===id);document.querySelectorAll('#tbl tr').forEach(t=>t.classList.toggle('sel',t.dataset.id===id));
+ document.getElementById('whoTitle').textContent=`Top contributing factors for ${id} (${u.level})`;const f=u.factors.length?u.factors:R.global_factors.slice(0,4);
+ mk('factors','bar',{labels:f.map(x=>x.feature),datasets:[{data:f.map(x=>+(x.share*100).toFixed(1)),backgroundColor:'#3b82f6'}]},{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{title:{display:true,text:'Share of contribution (%)'}}}})}
+function mk(id,type,data,opt){if(C[id])C[id].destroy();opt.maintainAspectRatio=false;opt.responsive=true;
+ Chart.defaults.color='#8fa1bd';C[id]=new Chart(document.getElementById(id),{type,data,options:opt})}
+async function ask(){const q=document.getElementById('q'),t=q.value.trim();if(!t)return;const ch=document.getElementById('chat');
+ ch.innerHTML+=`<p class="me">You: ${t.replace(/</g,'&lt;')}</p>`;q.value='';
+ const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:t})});
+ ch.innerHTML+=`<p>Assistant: ${(await r.json()).answer}</p>`;ch.scrollTop=ch.scrollHeight}
+</script></body></html>
